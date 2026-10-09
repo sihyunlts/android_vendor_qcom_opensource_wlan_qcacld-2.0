@@ -1,28 +1,29 @@
-KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
+.DEFAULT_GOAL := wlan
 
-KBUILD_OPTIONS := WLAN_ROOT=$(PWD)
-KBUILD_OPTIONS += MODNAME=wlan
+QCACLD_ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+QCACLD_SOURCE := $(patsubst %/,%,$(QCACLD_ROOT))
 
-# Determine if the driver license is Open source or proprietary
-# This is determined under the assumption that LICENSE doesn't change.
-# Please change here if driver license text changes.
-LICENSE_FILE ?= $(PWD)/$(WLAN_ROOT)/CORE/HDD/src/wlan_hdd_main.c
-WLAN_OPEN_SOURCE = $(shell if grep -q "MODULE_LICENSE(\"Dual BSD/GPL\")" \
-		$(LICENSE_FILE); then echo 1; else echo 0; fi)
+# Use a fully built target kernel: modules_prepare alone cannot provide its CRCs.
+ifeq ($(strip $(KERNEL_SRC)),)
+$(error KERNEL_SRC must name the target kernel source directory)
+endif
+ifeq ($(strip $(KERNEL_OUT)),)
+$(error KERNEL_OUT must name the configured and fully built target kernel output)
+endif
 
-#By default build for CLD
-WLAN_SELECT := CONFIG_QCA_CLD_WLAN=m
-KBUILD_OPTIONS += CONFIG_QCA_WIFI_ISOC=0
-KBUILD_OPTIONS += CONFIG_QCA_WIFI_2_0=1
-KBUILD_OPTIONS += $(WLAN_SELECT)
-KBUILD_OPTIONS += WLAN_OPEN_SOURCE=$(WLAN_OPEN_SOURCE)
-KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
+KERNEL_SRC := $(abspath $(KERNEL_SRC))
+KERNEL_OUT := $(abspath $(KERNEL_OUT))
+MODULE_OUT ?= $(KERNEL_OUT)/ef67-wlan
+MODULE_OUT := $(abspath $(MODULE_OUT))
+ARCH ?= arm
 
-all:
-	$(MAKE) -C $(KERNEL_SRC) M=$(shell pwd) modules $(KBUILD_OPTIONS)
-
-modules_install:
-	$(MAKE) INSTALL_MOD_STRIP=1 -C $(KERNEL_SRC) M=$(shell pwd) modules_install
-
-clean:
-	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) clean
+.PHONY: wlan
+wlan:
+	test -s $(KERNEL_OUT)/.config
+	test -s $(KERNEL_OUT)/Module.symvers
+	mkdir -p $(MODULE_OUT)
+	tar -C $(QCACLD_SOURCE) --exclude=./.git --exclude=./out -cf - . | tar -C $(MODULE_OUT) -xf -
+	$(MAKE) -C $(KERNEL_SRC) O=$(KERNEL_OUT) ARCH=$(ARCH) \
+		M=$(MODULE_OUT) WLAN_ROOT=$(MODULE_OUT) MODNAME=wlan \
+		WLAN_OPEN_SOURCE=1 CONFIG_QCA_CLD_WLAN=m \
+		CONFIG_QCA_WIFI_ISOC=0 CONFIG_QCA_WIFI_2_0=1 modules
