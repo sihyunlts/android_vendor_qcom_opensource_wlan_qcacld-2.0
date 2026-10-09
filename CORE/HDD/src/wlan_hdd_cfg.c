@@ -3527,7 +3527,7 @@ VOS_STATUS hdd_parse_config_ini(hdd_context_t* pHddCtx)
       vos_status = VOS_STATUS_E_FAILURE;
       goto config_exit;
    }
-   if(!fw || !fw->data || !fw->size)
+   if(!fw || !fw->data || !fw->size || fw->size == (size_t)-1)
    {
       hddLog(VOS_TRACE_LEVEL_FATAL, "%s: %s download failed",
              __func__, WLAN_INI_FILE);
@@ -3537,7 +3537,7 @@ VOS_STATUS hdd_parse_config_ini(hdd_context_t* pHddCtx)
 
    hddLog(LOG1, "%s: qcom_cfg.ini Size %zu", __func__, fw->size);
 
-   buffer = (char*)vos_mem_malloc(fw->size);
+   buffer = (char*)vos_mem_malloc(fw->size + 1);
 
    if(NULL == buffer) {
       hddLog(VOS_TRACE_LEVEL_FATAL, "%s: kmalloc failure",__func__);
@@ -3547,6 +3547,7 @@ VOS_STATUS hdd_parse_config_ini(hdd_context_t* pHddCtx)
    pTemp = buffer;
 
    vos_mem_copy((void*)buffer,(void *)fw->data, fw->size);
+   buffer[fw->size] = '\0';
    size = fw->size;
 
    while (buffer != NULL)
@@ -3992,6 +3993,7 @@ VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
    int status, i = 0;
    const struct firmware *fw = NULL;
    char *line, *buffer = NULL;
+   char *mac_config = NULL;
    char *name, *value;
    tCfgIniEntry macTable[VOS_MAX_CONCURRENCY_PERSONA];
 
@@ -4007,14 +4009,23 @@ VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
       vos_status = VOS_STATUS_E_FAILURE;
       return vos_status;
    }
-   if (!fw || !fw->data || !fw->size)
+   if (!fw || !fw->data || !fw->size || fw->size == (size_t)-1)
    {
       hddLog(VOS_TRACE_LEVEL_FATAL, "%s: invalid firmware", __func__);
       vos_status = VOS_STATUS_E_INVAL;
       goto config_exit;
    }
 
-   buffer = (char *)fw->data;
+   /* Firmware data has a length, but no guaranteed string terminator. */
+   mac_config = vos_mem_malloc(fw->size + 1);
+   if (!mac_config)
+   {
+      vos_status = VOS_STATUS_E_NOMEM;
+      goto config_exit;
+   }
+   vos_mem_copy(mac_config, fw->data, fw->size);
+   mac_config[fw->size] = '\0';
+   buffer = mac_config;
 
    /* data format:
     * Intf0MacAddress=00AA00BB00CC
@@ -4064,6 +4075,7 @@ VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx)
    update_mac_from_string(pHddCtx, &macTable[0], i);
 
 config_exit:
+   vos_mem_free(mac_config);
    release_firmware(fw);
    return vos_status;
 }

@@ -7077,20 +7077,38 @@ static int hdd_set_mac_address(struct net_device *dev, void *addr)
    return halStatus;
 }
 
+/* EF67 stock wlan_hdd_get_intf_addr reads four binary interface addresses. */
 tANI_U8* wlan_hdd_get_intf_addr(hdd_context_t* pHddCtx)
 {
-   int i;
-   for ( i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++)
-   {
-      if( 0 == ((pHddCtx->cfg_ini->intfAddrMask) & (1 << i)))
-         break;
-   }
+   const struct firmware *fw = NULL;
+   int i, status;
+   size_t address_bytes = sizeof(pHddCtx->cfg_ini->intfMacAddr);
 
-   if( VOS_MAX_CONCURRENCY_PERSONA == i)
+   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++)
+      if (!(pHddCtx->cfg_ini->intfAddrMask & (1 << i)))
+         break;
+   if (i == VOS_MAX_CONCURRENCY_PERSONA)
       return NULL;
 
+   status = request_firmware(&fw, WLAN_MAC_FILE, pHddCtx->parent_dev);
+   if (status)
+   {
+      hddLog(VOS_TRACE_LEVEL_ERROR, "%s: cannot read interface addresses: %d",
+             __func__, status);
+      return NULL;
+   }
+   if (!fw || !fw->data || fw->size != address_bytes ||
+       !is_valid_ether_addr(fw->data + i * VOS_MAC_ADDR_SIZE))
+   {
+      hddLog(VOS_TRACE_LEVEL_ERROR, "%s: invalid binary interface addresses",
+             __func__);
+      release_firmware(fw);
+      return NULL;
+   }
+   memcpy(pHddCtx->cfg_ini->intfMacAddr, fw->data, address_bytes);
+   release_firmware(fw);
    pHddCtx->cfg_ini->intfAddrMask |= (1 << i);
-   return &pHddCtx->cfg_ini->intfMacAddr[i].bytes[0];
+   return pHddCtx->cfg_ini->intfMacAddr[i].bytes;
 }
 
 void wlan_hdd_release_intf_addr(hdd_context_t* pHddCtx, tANI_U8* releaseAddr)
